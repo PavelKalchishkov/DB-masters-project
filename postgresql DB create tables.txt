@@ -1,0 +1,129 @@
+CREATE TABLE person (
+    person_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    first_name VARCHAR(50),
+    last_name VARCHAR(50),
+    email VARCHAR(50),
+    phone_number VARCHAR(20)
+);
+
+CREATE TABLE client (
+    person_id BIGINT PRIMARY KEY,
+    budget NUMERIC,
+    area_interested_in VARCHAR(100),
+    CONSTRAINT fk_client_person
+        FOREIGN KEY (person_id) REFERENCES person(person_id)
+);
+
+CREATE TABLE agent (
+    person_id BIGINT PRIMARY KEY,
+    salary NUMERIC,
+    hire_date DATE,
+    CONSTRAINT fk_agent_person
+        FOREIGN KEY (person_id) REFERENCES person(person_id)
+);
+
+CREATE TABLE roles (
+    role_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_type VARCHAR(20),
+    has_full_access BOOLEAN DEFAULT FALSE,
+    can_post BOOLEAN DEFAULT FALSE,
+    can_authorize_sale BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE person_roles (
+    person_roles_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_id BIGINT NOT NULL,
+    person_id BIGINT NOT NULL,
+    CONSTRAINT fk_person_roles_role
+        FOREIGN KEY (role_id) REFERENCES roles(role_id),
+    CONSTRAINT fk_person_roles_person
+        FOREIGN KEY (person_id) REFERENCES person(person_id)
+);
+
+CREATE TABLE property (
+    property_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    price NUMERIC,
+    square_meters NUMERIC,
+    latitude VARCHAR(10),
+    longitude VARCHAR(10),
+    city VARCHAR(20),
+    property_type VARCHAR(20),
+    owner_id BIGINT,
+    CONSTRAINT chk_property_type
+        CHECK (property_type IN ('garage', 'house', 'apartment')),
+    CONSTRAINT fk_property_owner
+        FOREIGN KEY (owner_id) REFERENCES person(person_id)
+);
+
+CREATE TABLE garage (
+    property_id BIGINT PRIMARY KEY,
+    CONSTRAINT fk_garage_property
+        FOREIGN KEY (property_id) REFERENCES property(property_id)
+);
+
+CREATE TABLE house (
+    property_id BIGINT PRIMARY KEY,
+    number_of_floors NUMERIC,
+    garden_size_m2 NUMERIC,
+    number_of_bathrooms NUMERIC,
+    number_of_rooms NUMERIC,
+    CONSTRAINT fk_house_property
+        FOREIGN KEY (property_id) REFERENCES property(property_id)
+);
+
+CREATE TABLE apartment (
+    property_id BIGINT PRIMARY KEY,
+    floor NUMERIC,
+    number_of_bathrooms NUMERIC,
+    number_of_rooms NUMERIC,
+    CONSTRAINT fk_apartment_property
+        FOREIGN KEY (property_id) REFERENCES property(property_id)
+);
+
+CREATE TABLE property_owner (
+    person_id BIGINT NOT NULL,
+    property_id BIGINT NOT NULL,
+    PRIMARY KEY (person_id, property_id),
+    CONSTRAINT fk_property_owner_person
+        FOREIGN KEY (person_id) REFERENCES person(person_id),
+    CONSTRAINT fk_property_owner_property
+        FOREIGN KEY (property_id) REFERENCES property(property_id)
+);
+
+CREATE TABLE preferences (
+    preference_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    client_id BIGINT NOT NULL,
+    preference_type VARCHAR(100),
+    CONSTRAINT fk_preferences_client
+        FOREIGN KEY (client_id) REFERENCES client(person_id)
+);
+
+CREATE TABLE listing (
+    listing_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    type_of_listing VARCHAR(100),
+    description VARCHAR(255),
+    notes VARCHAR(100)
+);
+
+CREATE TABLE property_images (
+    image_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    listing_id BIGINT NOT NULL,
+    image_data BYTEA,
+    image_url VARCHAR(500),
+    CONSTRAINT fk_property_images_listing
+        FOREIGN KEY (listing_id) REFERENCES listing(listing_id)
+);
+
+CREATE TABLE successful_deals (
+    deal_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    property_id BIGINT NOT NULL,
+    final_price NUMERIC,
+    agent_id BIGINT NOT NULL,
+    client_id BIGINT NOT NULL,
+    CONSTRAINT fk_deals_property
+        FOREIGN KEY (property_id) REFERENCES property(property_id),
+    CONSTRAINT fk_deals_agent
+        FOREIGN KEY (agent_id) REFERENCES agent(person_id),
+    CONSTRAINT fk_deals_client
+        FOREIGN KEY (client_id) REFERENCES client(person_id)
+);

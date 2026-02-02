@@ -1,0 +1,196 @@
+-- -----------------------------
+-- 1) PERSON
+-- -----------------------------
+WITH p AS (
+  INSERT INTO person (first_name, last_name, email, phone_number)
+  VALUES
+    ('Ivan',  'Petrov',   'ivan.petrov@example.com',  '+359888111222'),
+    ('Maria', 'Georgieva','maria.g@example.com',      '+359888333444'),
+    ('Nikolay','Dimitrov','nikolay.d@example.com',    '+359888555666'),
+    ('Elena', 'Koleva',   'elena.k@example.com',      '+359888777888'),
+    ('George','Stoyanov', 'george.s@example.com',     '+359888999000'),
+    ('Ana',   'Ivanova',  'ana.i@example.com',        '+359887111222'),
+    ('Petar', 'Nedev',    'petar.n@example.com',      '+359887333444')
+  RETURNING person_id, email
+),
+-- -----------------------------
+-- 2) CLIENT + AGENT (subtypes of PERSON)
+-- We'll pick specific persons by email
+-- -----------------------------
+clients AS (
+  INSERT INTO client (person_id, budget, area_interested_in)
+  SELECT person_id,
+         CASE email
+           WHEN 'ivan.petrov@example.com' THEN 150000
+           WHEN 'maria.g@example.com'     THEN 95000
+           WHEN 'elena.k@example.com'     THEN 220000
+         END AS budget,
+         CASE email
+           WHEN 'ivan.petrov@example.com' THEN 'Sofia - Lozenets'
+           WHEN 'maria.g@example.com'     THEN 'Sofia - Mladost'
+           WHEN 'elena.k@example.com'     THEN 'Plovdiv - Center'
+         END AS area_interested_in
+  FROM p
+  WHERE email IN ('ivan.petrov@example.com','maria.g@example.com','elena.k@example.com')
+  RETURNING person_id
+),
+agents AS (
+  INSERT INTO agent (person_id, salary, hire_date)
+  SELECT person_id,
+         CASE email
+           WHEN 'nikolay.d@example.com' THEN 3200
+           WHEN 'george.s@example.com'  THEN 4100
+         END AS salary,
+         CASE email
+           WHEN 'nikolay.d@example.com' THEN DATE '2022-04-15'
+           WHEN 'george.s@example.com'  THEN DATE '2021-09-01'
+         END AS hire_date
+  FROM p
+  WHERE email IN ('nikolay.d@example.com','george.s@example.com')
+  RETURNING person_id
+),
+-- -----------------------------
+-- 3) ROLES + PERSON_ROLES
+-- -----------------------------
+r AS (
+  INSERT INTO roles (role_type, has_full_access, can_post, can_authorize_sale)
+  VALUES
+    ('admin',  TRUE,  TRUE,  TRUE),
+    ('agent',  FALSE, TRUE,  TRUE),
+    ('client', FALSE, FALSE, FALSE)
+  RETURNING role_id, role_type
+),
+person_roles_seed AS (
+  INSERT INTO person_roles (role_id, person_id)
+  SELECT r.role_id, p.person_id
+  FROM p
+  JOIN r ON (
+    (p.email IN ('nikolay.d@example.com','george.s@example.com') AND r.role_type = 'agent') OR
+    (p.email IN ('ivan.petrov@example.com','maria.g@example.com','elena.k@example.com') AND r.role_type = 'client') OR
+    (p.email = 'ana.i@example.com' AND r.role_type = 'admin')
+  )
+  RETURNING person_roles_id
+),
+-- -----------------------------
+-- 4) PROPERTY (owner_id references PERSON)
+-- -----------------------------
+prop AS (
+  INSERT INTO property (
+    price, square_meters, latitude, longitude, city,
+    property_type, owner_id
+  )
+  SELECT
+    v.price, v.sqm, v.lat, v.lon, v.city,
+    v.ptype,
+    (SELECT person_id FROM p WHERE email = v.owner_email) AS owner_id
+  FROM (VALUES
+    (120000::numeric,  58::numeric, '42.6711', '23.3199', 'Sofia',   'apartment', 'petar.n@example.com'),
+    (245000::numeric, 135::numeric, '42.6977', '23.3219', 'Sofia',   'house',     'ana.i@example.com'),
+    ( 35000::numeric,  18::numeric, '42.6500', '23.3500', 'Sofia',   'garage',    'petar.n@example.com'),
+    (175000::numeric,  92::numeric, '42.1433', '24.7499', 'Plovdiv', 'apartment', 'elena.k@example.com')
+  ) AS v(price, sqm, lat, lon, city, ptype, owner_email)
+  RETURNING property_id, property_type
+),
+-- -----------------------------
+-- 5) Subtype tables: apartment/house/garage
+-- -----------------------------
+seed_apartment AS (
+  INSERT INTO apartment (property_id, floor, number_of_bathrooms, number_of_rooms)
+  SELECT property_id,
+         CASE property_id
+           WHEN (SELECT property_id FROM prop ORDER BY property_id LIMIT 1) THEN 3
+           ELSE 5
+         END,
+         1, 2
+  FROM prop
+  WHERE property_type = 'apartment'
+  RETURNING property_id
+),
+seed_house AS (
+  INSERT INTO house (property_id, number_of_floors, garden_size_m2, number_of_bathrooms, number_of_rooms)
+  SELECT property_id, 2, 60, 2, 5
+  FROM prop
+  WHERE property_type = 'house'
+  RETURNING property_id
+),
+seed_garage AS (
+  INSERT INTO garage (property_id)
+  SELECT property_id
+  FROM prop
+  WHERE property_type = 'garage'
+  RETURNING property_id
+),
+-- -----------------------------
+-- 6) PROPERTY_OWNER (many-to-many)
+-- Add co-owners to demonstrate join table usage
+-- -----------------------------
+owners AS (
+  INSERT INTO property_owner (person_id, property_id)
+  SELECT
+    (SELECT person_id FROM p WHERE email = v.owner_email),
+    v.property_id
+  FROM (
+    SELECT (SELECT property_id FROM prop ORDER BY property_id LIMIT 1) AS property_id,
+           'petar.n@example.com'::text AS owner_email
+    UNION ALL
+    SELECT (SELECT property_id FROM prop ORDER BY property_id LIMIT 1),
+           'ana.i@example.com'
+    UNION ALL
+    SELECT (SELECT property_id FROM prop ORDER BY property_id OFFSET 1 LIMIT 1),
+           'ana.i@example.com'
+  ) v
+  RETURNING person_id, property_id
+),
+-- -----------------------------
+-- 7) PREFERENCES
+-- -----------------------------
+prefs AS (
+  INSERT INTO preferences (client_id, preference_type)
+  SELECT (SELECT person_id FROM p WHERE email = 'ivan.petrov@example.com'), 'near metro'
+  UNION ALL
+  SELECT (SELECT person_id FROM p WHERE email = 'ivan.petrov@example.com'), '2 bedrooms'
+  UNION ALL
+  SELECT (SELECT person_id FROM p WHERE email = 'maria.g@example.com'), 'parking included'
+  UNION ALL
+  SELECT (SELECT person_id FROM p WHERE email = 'elena.k@example.com'), 'city center'
+  RETURNING preference_id
+),
+-- -----------------------------
+-- 8) LISTING + PROPERTY_IMAGES
+-- (Your schema does not link Listing -> Property, so these are standalone)
+-- -----------------------------
+listings AS (
+  INSERT INTO listing (type_of_listing, description, notes)
+  VALUES
+    ('sale', 'Two-room apartment near park', 'Open house Saturday'),
+    ('rent', 'Garage space available', 'Monthly contract')
+  RETURNING listing_id
+),
+images AS (
+  INSERT INTO property_images (listing_id, image_data, image_url)
+  SELECT listing_id,
+         decode('89504E470D0A1A0A', 'hex')::bytea,  -- tiny placeholder bytes (looks like start of PNG)
+         'https://example.com/img/listing_' || listing_id || '_1.png'
+  FROM listings
+  RETURNING image_id
+)
+-- -----------------------------
+-- 9) SUCCESSFUL_DEALS
+-- (property_id -> property, agent_id -> agent(person_id), client_id -> client(person_id))
+-- -----------------------------
+INSERT INTO successful_deals (property_id, final_price, agent_id, client_id)
+VALUES
+(
+  (SELECT property_id FROM prop ORDER BY property_id LIMIT 1),
+  118000,
+  (SELECT person_id FROM p WHERE email = 'nikolay.d@example.com'),
+  (SELECT person_id FROM p WHERE email = 'ivan.petrov@example.com')
+),
+(
+  (SELECT property_id FROM prop ORDER BY property_id OFFSET 3 LIMIT 1),
+  170000,
+  (SELECT person_id FROM p WHERE email = 'george.s@example.com'),
+  (SELECT person_id FROM p WHERE email = 'elena.k@example.com')
+);
+
+-- Done.
